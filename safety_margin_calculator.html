@@ -322,6 +322,76 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 <script>
 (function() {
+  // ── Supabase ───────────────────────────────────────────────────────────────
+  var SB_URL = 'https://rgukfoeqjfwmfizebbkwr.supabase.co';
+  var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJndWtmb2VxamZ3bWZpemVia3dyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MjE3MjUsImV4cCI6MjA5NjA5NzcyNX0.Qngiqz3fFYewW2nT2LppNEK-DsKIcyRpheFV_DmDD44';
+
+  function sbHeaders() {
+    return { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY };
+  }
+
+  function sbFetch(path, options) {
+    return fetch(SB_URL + '/rest/v1/' + path, Object.assign({ headers: sbHeaders() }, options));
+  }
+
+  async function loadFromSupabase() {
+    try {
+      var res = await sbFetch('watchlist?order=ts.desc');
+      if (!res.ok) throw new Error('Ladefehler');
+      var data = await res.json();
+      watchlist = data.map(function(r) {
+        return {
+          id: r.id, name: r.name, isin: r.isin, methods: r.methods,
+          iv: r.iv, ivAll: r.iv_all || {}, price: r.price, sm: r.sm,
+          eps: r.eps, kgv_pe: r.kgv_pe, wacc: r.wacc,
+          date: r.date, ts: r.ts, note: r.note || ''
+        };
+      });
+      localStorage.setItem('smc_wl4', JSON.stringify(watchlist));
+      document.getElementById('wl-count').textContent = watchlist.length;
+      renderWatchlist();
+    } catch(e) {
+      console.warn('Supabase load failed, using localStorage:', e);
+    }
+  }
+
+  async function saveToSupabase(entry) {
+    try {
+      var res = await sbFetch('watchlist', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: entry.id, name: entry.name, isin: entry.isin, methods: entry.methods,
+          iv: entry.iv, iv_all: entry.ivAll, price: entry.price, sm: entry.sm,
+          eps: entry.eps, kgv_pe: entry.kgv_pe, wacc: entry.wacc,
+          date: entry.date, ts: entry.ts, note: entry.note
+        })
+      });
+      if (!res.ok) throw new Error('Speicherfehler');
+    } catch(e) {
+      console.warn('Supabase save failed:', e);
+      showToast('Offline – nur lokal gespeichert');
+    }
+  }
+
+  async function deleteFromSupabase(id) {
+    try {
+      await sbFetch('watchlist?id=eq.' + id, { method: 'DELETE' });
+    } catch(e) {
+      console.warn('Supabase delete failed:', e);
+    }
+  }
+
+  async function updateNoteInSupabase(id, note) {
+    try {
+      await sbFetch('watchlist?id=eq.' + id, {
+        method: 'PATCH',
+        body: JSON.stringify({ note: note })
+      });
+    } catch(e) {
+      console.warn('Supabase note update failed:', e);
+    }
+  }
+
   // ── State ──────────────────────────────────────────────────────────────────
   var watchlist = JSON.parse(localStorage.getItem('smc_wl4') || '[]');
   var activeMethod = 'avg';
@@ -619,6 +689,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     METHODS.forEach(function(m) { entry.ivAll[m] = res[m] !== null ? +res[m].toFixed(2) : null; });
     watchlist.unshift(entry);
     saveWL();
+    saveToSupabase(entry);
     renderWatchlist();
     document.getElementById('wl-count').textContent = watchlist.length;
     showToast(name + ' gespeichert');
@@ -627,11 +698,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   function deleteEntry(id) {
     watchlist = watchlist.filter(function(x) { return x.id !== id; });
     saveWL(); renderWatchlist();
+    deleteFromSupabase(id);
     if (document.getElementById('view-vergleich').classList.contains('active')) renderCompare();
   }
   function updateNote(id, val) {
     var idx = watchlist.findIndex(function(x) { return x.id === id; });
-    if (idx >= 0) { watchlist[idx].note = val; saveWL(); }
+    if (idx >= 0) { watchlist[idx].note = val; saveWL(); updateNoteInSupabase(id, val); }
   }
 
   // ── Watchlist grouping ─────────────────────────────────────────────────────
@@ -934,6 +1006,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   // ── Init ───────────────────────────────────────────────────────────────────
   document.getElementById('wl-count').textContent = watchlist.length;
   update();
+  loadFromSupabase();
 })();
 </script>
 </body>
